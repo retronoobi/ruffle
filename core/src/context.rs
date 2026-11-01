@@ -184,6 +184,8 @@ pub struct UpdateContext<'gc> {
 
     /// The instant at which the SWF was launched.
     pub start_time: Instant,
+    /// Frontend-controlled elapsed milliseconds, when deterministic replay is active.
+    pub deterministic_time: Option<u32>,
 
     /// The instant at which the current update started.
     pub update_start: Instant,

@@ -21,9 +21,14 @@ pub fn get_timer<'gc>(
     _this: Value<'gc>,
     _args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok((Instant::now()
-        .duration_since(activation.context.start_time)
-        .as_millis() as u32)
+    Ok(activation
+        .context
+        .deterministic_time
+        .unwrap_or_else(|| {
+            Instant::now()
+                .duration_since(activation.context.start_time)
+                .as_millis() as u32
+        })
         .into())
 }
 

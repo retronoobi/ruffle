@@ -1255,9 +1255,11 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             *self.context.time_offset += 1;
         }
 
-        let time = Instant::now()
-            .duration_since(self.context.start_time)
-            .as_millis() as u32;
+        let time = self.context.deterministic_time.unwrap_or_else(|| {
+            Instant::now()
+                .duration_since(self.context.start_time)
+                .as_millis() as u32
+        });
         let result = time.wrapping_add(*self.context.time_offset);
         self.context.avm1.push(result.into());
         Ok(FrameControl::Continue)

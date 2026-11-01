@@ -1,0 +1,146 @@
+name: Libretro core
+
+on:
+  push:
+    branches: [master, main, codex/libretro-core]
+    tags: ['libretro-v*']
+    paths:
+      - 'libretro/**'
+      - 'core/**'
+      - 'render/**'
+      - 'video/**'
+      - 'swf/**'
+      - 'flv/**'
+      - 'wstr/**'
+      - 'tools/asc/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rustfmt.toml'
+      - 'LICENSE.md'
+      - '.cargo/**'
+      - '.github/workflows/libretro.yml'
+  pull_request:
+    paths:
+      - 'libretro/**'
+      - 'core/**'
+      - 'render/**'
+      - 'video/**'
+      - 'swf/**'
+      - 'flv/**'
+      - 'wstr/**'
+      - 'tools/asc/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rustfmt.toml'
+      - 'LICENSE.md'
+      - '.cargo/**'
+      - '.github/workflows/libretro.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libretro-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: 1.98.1-x86_64-pc-windows-gnu
+
+jobs:
+  build:
+    name: Windows x64 OpenGL core
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java for playerglobal
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up GNU Windows linker
+        id: msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Configure native tools
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          "$env:MSYS2_LOCATION\ucrt64\bin" >> $env:GITHUB_PATH
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install Rust toolchain' }
+
+      - name: Validate release tag
+        env:
+          BUILD_REF_TYPE: ${{ github.ref_type }}
+          BUILD_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $manifest = Get-Content libretro/Cargo.toml -Raw
+          $version = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if (-not $version) { throw 'Missing core version' }
+          if ($env:BUILD_REF_TYPE -eq 'tag' -and $env:BUILD_REF_NAME -ne "libretro-v$version") {
+            throw "Tag must match libretro/Cargo.toml: libretro-v$version"
+          }
+
+      - name: Check formatting
+        run: cargo fmt -p ruffle_libretro --check
+
+      - name: Review Rust diagnostics
+        run: cargo clippy -p ruffle_libretro --all-targets --no-deps --locked -- -D warnings
+
+      - name: Run core unit tests
+        run: ./libretro/build.ps1 -Task Test
+
+      - name: Build and validate release package
+        run: ./libretro/build.ps1 -Task Package
+
+      - name: Upload only the core package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: libretro-windows-x86_64
+          path: |
+            libretro/dist/*.zip
+            libretro/dist/*.zip.sha256
+            libretro/dist/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  publish:
+    name: Publish libretro Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/libretro-v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the validated package from this run
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name libretro-windows-x86_64 --dir release
+
+      - name: Verify package checksum
+        working-directory: release
+        run: sha256sum --check ./*.zip.sha256
+
+      - name: Publish only the Windows libretro core
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/*.zip release/*.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Ruffle libretro ${GITHUB_REF_NAME#libretro-v}" \
+            --notes-file release/RELEASE_NOTES.md

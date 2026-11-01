@@ -1,3 +1,5 @@
+> **Libretro branch:** this branch builds only the offline Windows x64 OpenGL core for RetroArch/EmuVR. See [libretro/README.md](libretro/README.md) for installation, builds and automatic releases. The upstream frontends below are retained as source reference.
+
 <p align="center">
   <a href="https://ruffle.rs"><img alt="Ruffle" src="https://ruffle.rs/logo.svg" /></a>
 </p>

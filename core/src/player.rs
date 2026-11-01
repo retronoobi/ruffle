@@ -390,6 +390,8 @@ pub struct Player {
 
     /// The instant at which the SWF was launched.
     start_time: Instant,
+    /// Frontend-controlled elapsed milliseconds, when deterministic replay is active.
+    deterministic_time: Option<u32>,
 
     /// The maximum amount of time that can be called before a `Error::ExecutionTimeout`
     /// is raised. This defaults to 15 seconds but can be changed.
@@ -425,6 +427,11 @@ pub struct Player {
 }
 
 impl Player {
+    /// Optional frontend-controlled clock for deterministic replay.
+    pub fn set_deterministic_time(&mut self, milliseconds: Option<u32>) {
+        self.deterministic_time = milliseconds;
+    }
+
     // This method will panic if called inside an `enter_arena_mut` call.
     fn enter_arena<F, T>(&self, f: F) -> T
     where
@@ -515,6 +522,9 @@ impl Player {
     /// that things like rendering also take time. But for now it's good enough.
     fn max_frames_per_tick(&self) -> u32 {
         const MAX_FRAMES_PER_TICK: u32 = 5;
+        if self.deterministic_time.is_some() {
+            return MAX_FRAMES_PER_TICK;
+        }
 
         if self.recent_run_frame_timings.is_empty() {
             5
@@ -2364,6 +2374,7 @@ impl Player {
                 avm2,
                 external_interface,
                 start_time: this.start_time,
+                deterministic_time: this.deterministic_time,
                 update_start: Instant::now(),
                 max_execution_duration: this.max_execution_duration,
                 focus_tracker: stage.focus_tracker(),
@@ -3096,6 +3107,7 @@ impl PlayerBuilder {
                 frame_accumulator: FloatDuration::ZERO,
                 recent_run_frame_timings: VecDeque::with_capacity(10),
                 start_time: Instant::now(),
+                deterministic_time: None,
                 time_offset: 0,
                 time_til_next_timer: None,
                 max_execution_duration: self.max_execution_duration,
